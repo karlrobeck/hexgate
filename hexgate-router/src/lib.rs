@@ -28,6 +28,7 @@ pub mod sql {
         distinct: Option<bool>,
         columns: Option<String>,
         distinct_on: Option<String>,
+        allow_return: Option<bool>,
     }
 
     pub struct SelectSQL {
@@ -162,6 +163,21 @@ pub mod sql {
                 self.statement = self.statement.values(item).unwrap().to_owned();
             }
 
+            if let Some(allow_return) = self.operation.allow_return {
+                if allow_return {
+                    match self.operation.columns {
+                        Some(columns) => {
+                            let columns = columns.split(",").map(Alias::new).collect::<Vec<_>>();
+                            self.statement = self
+                                .statement
+                                .returning(Query::returning().columns(columns))
+                                .to_owned();
+                        }
+                        None => self.statement = self.statement.returning_all().to_owned(),
+                    };
+                }
+            }
+
             self.statement.to_string(PostgresQueryBuilder)
         }
     }
@@ -275,6 +291,62 @@ pub mod sql {
             assert_eq!(
                 sql_query,
                 r#"INSERT INTO "sample"."table" ("age", "id", "name") VALUES (20, 1, 'john'), (21, 2, 'jane')"#
+            );
+        }
+
+        #[test]
+        fn test_insert_row_allow_return() {
+            let schema_name = Alias::new("sample");
+            let table_name = Alias::new("table");
+
+            let payload = json!([{
+                "id":1,
+                "name":"john",
+                "age":20
+            },{
+                "id":2,
+                "name":"jane",
+                "age":21
+            }]);
+
+            let query: Query<SQLOperation> = Query::try_from_uri(&Uri::from_static(
+                "http://example.com/sample/table?allow_return=true",
+            ))
+            .unwrap();
+
+            let sql_query = InsertSQL::new(schema_name, table_name, payload, query.0).build();
+
+            assert_eq!(
+                sql_query,
+                r#"INSERT INTO "sample"."table" ("age", "id", "name") VALUES (20, 1, 'john'), (21, 2, 'jane') RETURNING *"#
+            );
+        }
+
+        #[test]
+        fn test_insert_row_allow_return_specific_column() {
+            let schema_name = Alias::new("sample");
+            let table_name = Alias::new("table");
+
+            let payload = json!([{
+                "id":1,
+                "name":"john",
+                "age":20
+            },{
+                "id":2,
+                "name":"jane",
+                "age":21
+            }]);
+
+            let query: Query<SQLOperation> = Query::try_from_uri(&Uri::from_static(
+                "http://example.com/sample/table?allow_return=true&columns=name",
+            ))
+            .unwrap();
+
+            let sql_query = InsertSQL::new(schema_name, table_name, payload, query.0).build();
+
+            assert_eq!(
+                sql_query,
+                r#"INSERT INTO "sample"."table" ("age", "id", "name") VALUES (20, 1, 'john'), (21, 2, 'jane') RETURNING "name""#
             );
         }
     }
