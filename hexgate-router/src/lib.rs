@@ -3,17 +3,26 @@ mod routes {
         Router,
         routing::{delete, get, patch, post, put},
     };
+    use sqlx::{Pool, Postgres};
 
-    pub struct HexgateRouter;
+    #[derive(Clone)]
+    pub struct HexgateRouter {
+        db: Pool<Postgres>,
+    }
 
     impl HexgateRouter {
-        pub fn build() -> Router {
+        pub fn new(db: Pool<Postgres>) -> Self {
+            Self { db }
+        }
+
+        pub fn build(self) -> Router {
             Router::new()
                 .route("/:schema/:table", post(HexgateRouter::insert_route))
                 .route("/:schema/:table", get(HexgateRouter::select_route))
                 .route("/:schema/:table", patch(HexgateRouter::update_route))
                 .route("/:schema/:table", put(HexgateRouter::update_route))
                 .route("/:schema/:table", delete(HexgateRouter::delete_route))
+                .with_state(self)
         }
 
         // select,update,insert,delete, execute function
