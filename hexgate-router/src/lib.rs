@@ -1,7 +1,9 @@
 pub mod sql {
+    use std::collections::{BTreeSet, HashSet};
+
     use sea_query::{
-        Alias, Asterisk, PostgresQueryBuilder, Query, QueryStatementWriter, SelectStatement,
-        UpdateStatement,
+        Alias, Asterisk, InsertStatement, PostgresQueryBuilder, Query, QueryStatementWriter,
+        SelectStatement, SimpleExpr, UpdateStatement,
     };
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
@@ -90,14 +92,89 @@ pub mod sql {
         }
     }
 
+    pub struct InsertSQL {
+        values: Value,
+        statement: InsertStatement,
+        operation: SQLOperation,
+    }
+
+    impl InsertSQL {
+        pub fn new(schema: Alias, table: Alias, values: Value, operation: SQLOperation) -> Self {
+            Self {
+                statement: InsertStatement::new()
+                    .into_table((schema, table))
+                    .to_owned(),
+                operation,
+                values,
+            }
+        }
+
+        pub fn build(mut self) -> String {
+            let columns = match self.values.as_array() {
+                Some(columns) => columns
+                    .iter()
+                    .map(|v| {
+                        let keys = match v.as_object() {
+                            Some(keys) => keys.iter().map(|k| Alias::new(k.0)).collect::<Vec<_>>(),
+                            None => vec![],
+                        };
+                        keys
+                    })
+                    .flatten()
+                    .collect::<BTreeSet<_>>(),
+                None => BTreeSet::new(),
+            };
+            let values = match self.values.as_array() {
+                Some(values) => values
+                    .iter()
+                    .map(|v| {
+                        let values = match v.as_object() {
+                            Some(values) => values
+                                .iter()
+                                .map(|v| match v.1 {
+                                    Value::Number(v) => {
+                                        if v.is_f64() {
+                                            return SimpleExpr::Value(v.as_f64().unwrap().into());
+                                        }
+                                        if v.is_i64() {
+                                            return SimpleExpr::Value(v.as_i64().unwrap().into());
+                                        }
+                                        if v.is_u64() {
+                                            return SimpleExpr::Value(v.as_u64().unwrap().into());
+                                        }
+                                        return SimpleExpr::Value("null".into());
+                                    }
+                                    Value::String(v) => SimpleExpr::Value(v.into()),
+                                    _ => panic!("test"),
+                                })
+                                .collect::<Vec<_>>(),
+                            None => vec![],
+                        };
+                        values
+                    })
+                    .collect::<Vec<_>>(),
+                None => vec![],
+            };
+
+            self.statement = self.statement.columns(columns).to_owned();
+
+            for item in values {
+                self.statement = self.statement.values(item).unwrap().to_owned();
+            }
+
+            self.statement.to_string(PostgresQueryBuilder)
+        }
+    }
+
     #[cfg(test)]
     mod test {
         use axum::{extract::Query, http::Uri};
         use sea_query::Alias;
+        use serde_json::json;
 
         use crate::sql::SelectSQL;
 
-        use super::SQLOperation;
+        use super::{InsertSQL, SQLOperation};
 
         #[test]
         fn test_limit_query() {
@@ -173,6 +250,32 @@ pub mod sql {
                 sql_query,
                 r#"SELECT DISTINCT ON ("id", "name", "password") "id", "name", "password" FROM "sample"."table""#
             )
+        }
+
+        #[test]
+        fn test_insert_row() {
+            let schema_name = Alias::new("sample");
+            let table_name = Alias::new("table");
+
+            let payload = json!([{
+                "id":1,
+                "name":"john",
+                "age":20
+            },{
+                "id":2,
+                "name":"jane",
+                "age":21
+            }]);
+
+            let query: Query<SQLOperation> =
+                Query::try_from_uri(&Uri::from_static("http://example.com/sample/table")).unwrap();
+
+            let sql_query = InsertSQL::new(schema_name, table_name, payload, query.0).build();
+
+            assert_eq!(
+                sql_query,
+                r#"INSERT INTO "sample"."table" ("age", "id", "name") VALUES (20, 1, 'john'), (21, 2, 'jane')"#
+            );
         }
     }
 }
