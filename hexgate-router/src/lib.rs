@@ -1,5 +1,8 @@
-mod sql {
-    use sea_query::{Alias, Query, SelectStatement, UpdateStatement};
+pub mod sql {
+    use sea_query::{
+        Alias, Asterisk, PostgresQueryBuilder, Query, QueryStatementWriter, SelectStatement,
+        UpdateStatement,
+    };
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
@@ -22,38 +25,77 @@ mod sql {
         sort: Option<String>,   // TODO: implement this properly for parsing
         distinct: Option<bool>,
         columns: Option<String>,
-        distinct_on: Option<Vec<String>>,
+        distinct_on: Option<String>,
     }
 
-    impl SQLOperation {
-        pub fn build_select(&self, schema: Alias, table: Alias) -> SelectStatement {
-            let mut sql_query = Query::select().from((schema, table)).to_owned();
-            let sql_query = match self.limit {
-                Some(limit) => sql_query.limit(limit).to_owned(),
-                None => sql_query,
+    pub struct SelectSQL {
+        statement: SelectStatement,
+        operation: SQLOperation,
+    }
+
+    impl SelectSQL {
+        pub fn new(schema: Alias, table: Alias, operation: SQLOperation) -> Self {
+            Self {
+                statement: SelectStatement::new().from((schema, table)).to_owned(),
+                operation,
+            }
+        }
+
+        fn match_columns(mut self) -> Self {
+            match &self.operation.columns {
+                Some(columns) => {
+                    let columns = columns.split(",").map(Alias::new).collect::<Vec<_>>();
+                    self.statement = self.statement.columns(columns).to_owned();
+                }
+                None => {
+                    self.statement = self.statement.column(Asterisk).to_owned();
+                }
             };
-            sql_query
+            self
         }
-        pub fn build_insert(&self, schema: Alias, table: Alias) {
-            let mut sql_query = Query::insert()
-                .into_table((schema, table))
-                .returning_all()
-                .to_owned();
+
+        fn match_limit(mut self) -> Self {
+            if let Some(limit) = &self.operation.limit {
+                self.statement = self.statement.limit(limit.clone()).to_owned();
+            }
+            self
         }
-    }
 
-    pub struct ToValue(pub Value);
+        fn match_distinct(mut self) -> Self {
+            if let Some(_) = &self.operation.distinct {
+                self.statement = self.statement.distinct().to_owned();
+            }
+            self
+        }
 
-    impl Into<UpdateStatement> for ToValue {
-        fn into(self) -> UpdateStatement {
-            unimplemented!()
+        fn match_distinct_on(mut self) -> Self {
+            if let Some(distinct_on) = &self.operation.distinct_on {
+                let distinct_on_columns =
+                    distinct_on.split(",").map(Alias::new).collect::<Vec<_>>();
+                self.statement = self.statement.distinct_on(distinct_on_columns).to_owned();
+            }
+            self
+        }
+
+        fn match_where(mut self) -> Self {
+            self
+        }
+
+        pub fn build(mut self) -> String {
+            self = self.match_columns();
+            self = self.match_limit();
+            self = self.match_distinct();
+            self = self.match_distinct_on();
+            self.statement.to_owned().to_string(PostgresQueryBuilder)
         }
     }
 
     #[cfg(test)]
     mod test {
         use axum::{extract::Query, http::Uri};
-        use sea_query::{Alias, Asterisk, PostgresQueryBuilder, Query as DBQuery};
+        use sea_query::Alias;
+
+        use crate::sql::SelectSQL;
 
         use super::SQLOperation;
 
@@ -65,17 +107,8 @@ mod sql {
                 "http://example.com/sample/table/?limit=10",
             ))
             .unwrap();
-
-            let sql_query = DBQuery::select()
-                .from((schema_name, table_name))
-                .column(Asterisk)
-                .limit(query.limit.unwrap())
-                .to_owned();
-
-            assert_eq!(
-                sql_query.to_string(PostgresQueryBuilder),
-                r#"SELECT * FROM "sample"."table" LIMIT 10"#
-            );
+            let sql_query = SelectSQL::new(schema_name, table_name, query.0).build();
+            assert_eq!(sql_query, r#"SELECT * FROM "sample"."table" LIMIT 10"#);
         }
 
         #[test]
@@ -86,19 +119,9 @@ mod sql {
             let query: Query<SQLOperation> =
                 Query::try_from_uri(&Uri::from_static("http://example.com/sample/table/")).unwrap();
 
-            let mut sql_query = DBQuery::select().from((schema_name, table_name)).to_owned();
+            let sql_query = SelectSQL::new(schema_name, table_name, query.0).build();
 
-            let sql_query = match &query.columns {
-                Some(columns) => sql_query
-                    .columns(columns.split(",").map(Alias::new).collect::<Vec<_>>())
-                    .to_owned(),
-                None => sql_query.column(Asterisk).to_owned(),
-            };
-
-            assert_eq!(
-                sql_query.to_string(PostgresQueryBuilder),
-                r#"SELECT * FROM "sample"."table""#
-            )
+            assert_eq!(sql_query, r#"SELECT * FROM "sample"."table""#)
         }
 
         #[test]
@@ -111,17 +134,10 @@ mod sql {
             ))
             .unwrap();
 
-            let mut sql_query = DBQuery::select().from((schema_name, table_name)).to_owned();
-
-            let sql_query = match &query.columns {
-                Some(columns) => sql_query
-                    .columns(columns.split(",").map(Alias::new).collect::<Vec<_>>())
-                    .to_owned(),
-                None => sql_query.column(Asterisk).to_owned(),
-            };
+            let sql_query = SelectSQL::new(schema_name, table_name, query.0).build();
 
             assert_eq!(
-                sql_query.to_string(PostgresQueryBuilder),
+                sql_query,
                 r#"SELECT "id", "name", "password" FROM "sample"."table""#
             )
         }
@@ -136,19 +152,26 @@ mod sql {
             ))
             .unwrap();
 
-            let mut sql_query = DBQuery::select()
-                .from((schema_name, table_name))
-                .column(Asterisk)
-                .to_owned();
+            let sql_query = SelectSQL::new(schema_name, table_name, query.0).build();
 
-            let sql_query = match query.distinct {
-                Some(_) => sql_query.distinct().to_owned(),
-                None => sql_query,
-            };
+            assert_eq!(sql_query, r#"SELECT DISTINCT * FROM "sample"."table""#)
+        }
+
+        #[test]
+        fn test_distinct_on_query() {
+            let schema_name = Alias::new("sample");
+            let table_name = Alias::new("table");
+            // distinct=true can be optional
+            let query: Query<SQLOperation> = Query::try_from_uri(&Uri::from_static(
+                "http://example.com/sample/table/?distinct=true&distinct_on=id,name,password&columns=id,name,password",
+            ))
+            .unwrap();
+
+            let sql_query = SelectSQL::new(schema_name, table_name, query.0).build();
 
             assert_eq!(
-                sql_query.to_string(PostgresQueryBuilder),
-                r#"SELECT DISTINCT * FROM "sample"."table""#
+                sql_query,
+                r#"SELECT DISTINCT ON ("id", "name", "password") "id", "name", "password" FROM "sample"."table""#
             )
         }
     }
@@ -169,7 +192,7 @@ mod routes {
     use serde_json::Value;
     use sqlx::{Pool, Postgres};
 
-    use crate::sql::{SQLFunction, SQLOperation, SQLSchemaTable, ToValue};
+    use crate::sql::{SQLFunction, SQLOperation, SQLSchemaTable};
 
     #[derive(Clone)]
     pub struct HexgateRouter {
@@ -207,14 +230,6 @@ mod routes {
         ) {
             let schema_name = Alias::new(path.schema);
             let table_name = Alias::new(path.table);
-
-            let sql = query
-                .build_select(schema_name, table_name)
-                .to_owned()
-                .to_string(PostgresQueryBuilder);
-
-            // execute the query
-            let result = sqlx::query(&sql).fetch_all(&state.db).await;
 
             todo!("implement select operation for this route")
         }
