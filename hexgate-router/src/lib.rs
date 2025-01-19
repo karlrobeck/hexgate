@@ -1,11 +1,19 @@
 mod routes {
-    use axum::Router;
+    use axum::{
+        Router,
+        routing::{delete, get, patch, post, put},
+    };
 
     pub struct HexgateRouter;
 
     impl HexgateRouter {
         pub fn build() -> Router {
-            todo!("build the router using static methods")
+            Router::new()
+                .route("/:schema/:table", post(HexgateRouter::insert_route))
+                .route("/:schema/:table", get(HexgateRouter::select_route))
+                .route("/:schema/:table", patch(HexgateRouter::update_route))
+                .route("/:schema/:table", put(HexgateRouter::update_route))
+                .route("/:schema/:table", delete(HexgateRouter::delete_route))
         }
 
         // select,update,insert,delete, execute function
