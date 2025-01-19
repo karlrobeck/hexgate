@@ -6,6 +6,7 @@ mod routes {
         extract::{Path, Query, State},
         routing::{delete, get, patch, post, put},
     };
+    use sea_query::{Alias, PostgresQueryBuilder, Query as DBQuery, QueryStatementWriter};
     use serde::{Deserialize, Serialize};
     use sqlx::{Pool, Postgres};
 
@@ -28,9 +29,9 @@ mod routes {
 
     #[derive(Deserialize, Serialize)]
     pub struct SQLOperation {
-        limit: i32,
-        filter: String, // TODO: implement this properly for parsing
-        sort: String,   // TODO: implement this properly for parsing
+        limit: Option<u64>,
+        filter: Option<String>, // TODO: implement this properly for parsing
+        sort: Option<String>,   // TODO: implement this properly for parsing
     }
 
     impl HexgateRouter {
@@ -62,6 +63,21 @@ mod routes {
             Path(path): Path<SQLSchemaTable>,
             Query(query): Query<SQLOperation>,
         ) {
+            let schema_name = Alias::new(path.schema);
+            let table_name = Alias::new(path.table);
+
+            let mut sql_query = DBQuery::select().from((schema_name, table_name)).to_owned();
+
+            let sql_query = match query.limit {
+                Some(limit) => sql_query.limit(limit).to_owned(),
+                None => sql_query,
+            };
+
+            let sql = sql_query.to_owned().to_string(PostgresQueryBuilder);
+
+            // execute the query
+            let result = sqlx::query(&sql).fetch_all(&state.db).await;
+
             todo!("implement select operation for this route")
         }
 
