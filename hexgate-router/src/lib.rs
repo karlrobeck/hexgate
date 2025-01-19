@@ -22,6 +22,14 @@ mod routes {
                 .route("/:schema/:table", patch(HexgateRouter::update_route))
                 .route("/:schema/:table", put(HexgateRouter::update_route))
                 .route("/:schema/:table", delete(HexgateRouter::delete_route))
+                .route(
+                    "/:schema/function/:name",
+                    post(HexgateRouter::execute_function),
+                )
+                .route(
+                    "/:schema/function/:name",
+                    post(HexgateRouter::execute_function),
+                )
                 .with_state(self)
         }
 
