@@ -2,5 +2,10 @@
 name = "hexgate"
 version = "0.1.0"
 edition = "2024"
+authors = ["karl robeck alferez <karlalferezfx@gmail.com>"]
+
+
+[workspace]
+members = ["hexgate-router"]
 
 [dependencies]
