@@ -51,7 +51,7 @@ mod routes {
                 )
                 .route(
                     "/:schema/function/:name",
-                    post(HexgateRouter::execute_function),
+                    get(HexgateRouter::execute_function),
                 )
                 .with_state(self)
         }
