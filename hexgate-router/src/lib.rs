@@ -2,8 +2,8 @@ pub mod sql {
     use std::collections::{BTreeSet, HashSet};
 
     use sea_query::{
-        Alias, Asterisk, InsertStatement, PostgresQueryBuilder, Query, QueryStatementWriter,
-        SelectStatement, SimpleExpr, UpdateStatement,
+        Alias, Asterisk, Cond, ConditionalStatement, Expr, InsertStatement, PostgresQueryBuilder,
+        Query, QueryStatementWriter, SelectStatement, SimpleExpr, UpdateStatement,
     };
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
@@ -23,8 +23,8 @@ pub mod sql {
     #[derive(Deserialize, Serialize)]
     pub struct SQLOperation {
         limit: Option<u64>,
-        filter: Option<String>, // TODO: implement this properly for parsing
-        sort: Option<String>,   // TODO: implement this properly for parsing
+        r#where: Option<String>, // TODO: implement this properly for parsing
+        sort: Option<String>,    // TODO: implement this properly for parsing
         distinct: Option<bool>,
         columns: Option<String>,
         distinct_on: Option<String>,
@@ -81,6 +81,14 @@ pub mod sql {
         }
 
         fn match_where(mut self) -> Self {
+            if let Some(ref r#where) = self.operation.r#where {
+                let conditions = r#where
+                    .split(|c| c == '(' || c == ')')
+                    .flat_map(|s| s.split(','))
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>();
+                println!("{:?}", conditions);
+            }
             self
         }
 
@@ -89,6 +97,7 @@ pub mod sql {
             self = self.match_limit();
             self = self.match_distinct();
             self = self.match_distinct_on();
+            self = self.match_where();
             self.statement.to_owned().to_string(PostgresQueryBuilder)
         }
     }
@@ -348,6 +357,26 @@ pub mod sql {
                 sql_query,
                 r#"INSERT INTO "sample"."table" ("age", "id", "name") VALUES (20, 1, 'john'), (21, 2, 'jane') RETURNING "name""#
             );
+        }
+
+        #[test]
+        fn test_select_where() {
+            // use this as reference https://docs.postgrest.org/en/v12/references/api/tables_views.html
+            let schema_name = Alias::new("sample");
+            let table_name = Alias::new("table");
+            let query: Query<SQLOperation> = Query::try_from_uri(
+                &Uri::builder()
+                    .scheme("https")
+                    .authority("example.com")
+                    .path_and_query("/sample/table?where=(id=eq.1,name=eq.johndoe)")
+                    .build()
+                    .unwrap(),
+            )
+            .unwrap();
+
+            let sql_query = SelectSQL::new(schema_name, table_name, query.0).build();
+
+            assert_eq!(sql_query, r#"SELECT * FROM "sample"."table" where id = 1"#)
         }
     }
 }
