@@ -56,7 +56,40 @@ flowchart TB
 > will either complete entirely or have no effect at all, providing a reliable
 > way to manage database changes.
 
+### REST API Endpoints
+
+The REST API endpoints will be implemented as follows:
+
+### Table / view operation
+
+```url
+protocol://domain/{schema}/{table|view}?{options}
+```
+
+This endpoint is used to perform operations on tables or views within a
+specified schema.
+
+- `{schema}`: The schema in which the table or view resides.
+- `{table|view}`: The name of the table or view you want to interact with.
+- `{options}`: Query parameters that specify the operation details, such as
+  filters, sorting, or pagination.
+
+### Function
+
+```url
+protocol://domain/{schema}/function/{name}?{arguments}
+```
+
+This endpoint is used to call a function within a specified schema.
+
+- `{schema}`: The schema in which the function resides.
+- `{name}`: The name of the function you want to call.
+- `{arguments}`: Query parameters that specify the arguments to be passed to the
+  function.
+
 ## Roadmap
+
+- `hexgate-router` - Axum based router for handling http requests.
 
 ## License
 
