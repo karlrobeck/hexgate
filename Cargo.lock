@@ -606,6 +606,7 @@ dependencies = [
  "jwt",
  "sea-query",
  "serde",
+ "serde_json",
  "sqlx",
  "tokio",
 ]
