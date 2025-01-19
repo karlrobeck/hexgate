@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.1"
+jwt = "0.16.0"
+sea-query = { version = "0.32.1", features = ["thread-safe"] }
+serde = { version = "1.0.217", features = ["derive"] }
+sqlx = { version = "0.8.3", features = ["runtime-tokio", "tls-native-tls", "postgres", "uuid", "chrono", "json"] }
+tokio = { version = "1.43.0", features = ["full"] }
